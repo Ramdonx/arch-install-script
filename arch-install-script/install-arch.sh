@@ -52,7 +52,6 @@ KEYMAP="la-latin1"
 # Tamaños de partición (sda1 y sda2 fijos, sda3 usa el resto)
 BOOT_SIZE="2GiB"
 ROOT_SIZE="40GiB"
-# HOME_SIZE se calculará automáticamente con el espacio restante
 
 # Confirmación
 print_warning "Este script formateará el disco: $DISK"
@@ -67,17 +66,17 @@ if [[ ! $confirmation =~ ^[Ss]$ ]]; then
     exit 0
 fi
 
-# Configurar mirrors para Colombia
-print_message "Configurando mirrors para Colombia..."
-cat > /etc/pacman.d/mirrorlist << MIRRORS
-## Colombia
-Server = https://mirrors.unal.edu.co/archlinux/\$repo/os/\$arch
-Server = http://mirrors.unal.edu.co/archlinux/\$repo/os/\$arch
-Server = https://mirror.ufps.edu.co/archlinux/\$repo/os/\$arch
-Server = http://mirror.ufps.edu.co/archlinux/\$repo/os/\$arch
-## Global mirrors
-Server = https://mirror.rackspace.com/archlinux/\$repo/os/\$arch
-Server = https://geo.mirror.pkgbuild.com/\$repo/os/\$arch
+# Configurar mirrors globales confiables
+print_message "Configurando mirrors globales confiables..."
+cat > /etc/pacman.d/mirrorlist << 'MIRRORS'
+## Global mirrors - confiables
+Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch
+Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
+Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
+Server = https://mirror.osbeck.com/archlinux/$repo/os/$arch
+Server = http://mirror.osbeck.com/archlinux/$repo/os/$arch
+Server = https://archlinux.mirror.liteserver.nl/$repo/os/$arch
+Server = http://archlinux.mirror.liteserver.nl/$repo/os/$arch
 MIRRORS
 
 # Sincronizar hora
@@ -94,10 +93,14 @@ parted -s "$DISK" mkpart "boot" fat32 1MiB $BOOT_SIZE
 parted -s "$DISK" set 1 esp on
 
 # sda2: Root (tamaño fijo)
-parted -s "$DISK" mkpart "root" ext4 $BOOT_SIZE $ROOT_SIZE
+BOOT_END=$(parted -s "$DISK" unit MiB print | grep "boot" | awk '{print $3}' | sed 's/MiB//')
+ROOT_START=$((BOOT_END + 1))
+parted -s "$DISK" mkpart "root" ext4 ${ROOT_START}MiB $ROOT_SIZE
 
 # sda3: Home (usa TODO el espacio restante)
-parted -s "$DISK" mkpart "home" ext4 $ROOT_SIZE 100%
+ROOT_END=$(parted -s "$DISK" unit MiB print | grep "root" | awk '{print $3}' | sed 's/MiB//')
+HOME_START=$((ROOT_END + 1))
+parted -s "$DISK" mkpart "home" ext4 ${HOME_START}MiB 100%
 
 # Mostrar las particiones creadas
 print_message "Particiones creadas:"
@@ -121,14 +124,20 @@ mount "${DISK}3" /mnt/home
 print_message "Información del espacio en particiones:"
 lsblk -f "$DISK"
 
-# Configurar pacman para multilib y extra
-print_message "Configurando repositorios multilib y extra..."
-cat > /etc/pacman.conf << PACMANCONF
+# Configurar pacman.conf CORREGIDO (sin warnings)
+print_message "Configurando pacman.conf..."
+cat > /etc/pacman.conf << 'PACMANCONF'
 [options]
-HoldPkg     = pacman glibc
+HoldPkg = pacman glibc
 Architecture = auto
-Include = /etc/pacman.d/mirrorlist
 
+# Misc options
+Color
+CheckSpace
+VerbosePkgLists
+ParallelDownloads = 5
+
+# Repositories
 [core]
 Include = /etc/pacman.d/mirrorlist
 
@@ -140,12 +149,6 @@ Include = /etc/pacman.d/mirrorlist
 
 [multilib]
 Include = /etc/pacman.d/mirrorlist
-
-Color
-ILoveCandy
-CheckSpace
-VerbosePkgLists
-ParallelDownloads = 5
 PACMANCONF
 
 # Actualizar base de datos
@@ -163,7 +166,7 @@ genfstab -U /mnt >> /mnt/etc/fstab
 # Configuración del sistema
 print_message "Configurando sistema..."
 
-arch-chroot /mnt /bin/bash <<CHROOT_EOF
+arch-chroot /mnt /bin/bash << 'CHROOT_EOF'
 # Configurar timezone
 ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 hwclock --systohc
@@ -181,7 +184,7 @@ echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
 echo "$HOSTNAME" > /etc/hostname
 
 # Configurar hosts
-cat > /etc/hosts <<HOSTS_EOF
+cat > /etc/hosts << HOSTS_EOF
 127.0.0.1   localhost
 ::1         localhost
 127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
@@ -207,16 +210,42 @@ grub-mkconfig -o /boot/grub/grub.cfg
 # Habilitar NetworkManager
 systemctl enable NetworkManager
 
+# Configurar pacman.conf en el sistema instalado (CORREGIDO)
+cat > /etc/pacman.conf << 'PACMAN_INSTALLED'
+[options]
+HoldPkg = pacman glibc
+Architecture = auto
+
+# Misc options
+Color
+CheckSpace
+VerbosePkgLists
+ParallelDownloads = 5
+
+# Repositories
+[core]
+Include = /etc/pacman.d/mirrorlist
+
+[extra]
+Include = /etc/pacman.d/mirrorlist
+
+[community]
+Include = /etc/pacman.d/mirrorlist
+
+[multilib]
+Include = /etc/pacman.d/mirrorlist
+PACMAN_INSTALLED
+
 # Configurar mirrors en el sistema instalado
-cat > /etc/pacman.d/mirrorlist <<MIRRORS_INSTALLED
-## Colombia
-Server = https://mirrors.unal.edu.co/archlinux/\$repo/os/\$arch
-Server = http://mirrors.unal.edu.co/archlinux/\$repo/os/\$arch
-Server = https://mirror.ufps.edu.co/archlinux/\$repo/os/\$arch
-Server = http://mirror.ufps.edu.co/archlinux/\$repo/os/\$arch
-## Global mirrors
-Server = https://mirror.rackspace.com/archlinux/\$repo/os/\$arch
-Server = https://geo.mirror.pkgbuild.com/\$repo/os/\$arch
+cat > /etc/pacman.d/mirrorlist << 'MIRRORS_INSTALLED'
+## Global mirrors - confiables
+Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch
+Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
+Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
+Server = https://mirror.osbeck.com/archlinux/$repo/os/$arch
+Server = http://mirror.osbeck.com/archlinux/$repo/os/$arch
+Server = https://archlinux.mirror.liteserver.nl/$repo/os/$arch
+Server = http://archlinux.mirror.liteserver.nl/$repo/os/$arch
 MIRRORS_INSTALLED
 
 # Actualizar
@@ -240,5 +269,5 @@ print_message "Estructura final de particiones:"
 print_message "sda1: $BOOT_SIZE /boot"
 print_message "sda2: $ROOT_SIZE /"
 print_message "sda3: (todo el espacio restante) /home"
-print_message "Kernel: Linux Zen - Mirrors: Colombia"
+print_message "Kernel: Linux Zen"
 print_message "Reinicia y quita el medio de instalación"
