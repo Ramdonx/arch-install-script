@@ -66,18 +66,20 @@ if [[ ! $confirmation =~ ^[Ss]$ ]]; then
     exit 0
 fi
 
-# Configurar mirrors globales confiables
-print_message "Configurando mirrors globales confiables..."
-cat > /etc/pacman.d/mirrorlist << 'MIRRORS'
-## Global mirrors - confiables
-Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch
-Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
-Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
-Server = https://mirror.osbeck.com/archlinux/$repo/os/$arch
-Server = http://mirror.osbeck.com/archlinux/$repo/os/$arch
-Server = https://archlinux.mirror.liteserver.nl/$repo/os/$arch
-Server = http://archlinux.mirror.liteserver.nl/$repo/os/$arch
-MIRRORS
+# Configurar mirrors con reflector (LA MEJOR SOLUCIÓN)
+print_message "Configurando mirrors con reflector..."
+pacman -Sy --noconfirm reflector
+
+# Generar lista de mirrors optimizados
+reflector \
+    --country Colombia,Mexico,United States,Brazil \
+    --protocol https,http \
+    --latest 20 \
+    --sort rate \
+    --save /etc/pacman.d/mirrorlist
+
+print_message "Mirrors configurados:"
+cat /etc/pacman.d/mirrorlist | head -10
 
 # Sincronizar hora
 print_message "Sincronizando hora..."
@@ -124,7 +126,7 @@ mount "${DISK}3" /mnt/home
 print_message "Información del espacio en particiones:"
 lsblk -f "$DISK"
 
-# Configurar pacman.conf CORREGIDO (sin warnings)
+# Configurar pacman.conf CORREGIDO
 print_message "Configurando pacman.conf..."
 cat > /etc/pacman.conf << 'PACMANCONF'
 [options]
@@ -166,7 +168,7 @@ genfstab -U /mnt >> /mnt/etc/fstab
 # Configuración del sistema
 print_message "Configurando sistema..."
 
-arch-chroot /mnt /bin/bash << 'CHROOT_EOF'
+arch-chroot /mnt /bin/bash << CHROOT_EOF
 # Configurar timezone
 ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 hwclock --systohc
@@ -200,8 +202,8 @@ echo "$USERNAME:$USER_PASSWORD" | chpasswd
 # Configurar sudo
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 
-# Instalar paquetes necesarios
-pacman -S --noconfirm grub efibootmgr dosfstools mtools networkmanager sudo vim git
+# Instalar paquetes necesarios incluyendo reflector
+pacman -S --noconfirm grub efibootmgr dosfstools mtools networkmanager sudo vim git reflector
 
 # Configurar GRUB
 grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
@@ -210,8 +212,8 @@ grub-mkconfig -o /boot/grub/grub.cfg
 # Habilitar NetworkManager
 systemctl enable NetworkManager
 
-# Configurar pacman.conf en el sistema instalado (CORREGIDO)
-cat > /etc/pacman.conf << 'PACMAN_INSTALLED'
+# Configurar pacman.conf en el sistema instalado
+cat > /etc/pacman.conf << PACMAN_INSTALLED
 [options]
 HoldPkg = pacman glibc
 Architecture = auto
@@ -236,19 +238,18 @@ Include = /etc/pacman.d/mirrorlist
 Include = /etc/pacman.d/mirrorlist
 PACMAN_INSTALLED
 
-# Configurar mirrors en el sistema instalado
-cat > /etc/pacman.d/mirrorlist << 'MIRRORS_INSTALLED'
-## Global mirrors - confiables
-Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch
-Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
-Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
-Server = https://mirror.osbeck.com/archlinux/$repo/os/$arch
-Server = http://mirror.osbeck.com/archlinux/$repo/os/$arch
-Server = https://archlinux.mirror.liteserver.nl/$repo/os/$arch
-Server = http://archlinux.mirror.liteserver.nl/$repo/os/$arch
-MIRRORS_INSTALLED
+# Configurar mirrors en el sistema instalado con reflector
+reflector \
+    --country Colombia,Mexico,United States,Brazil \
+    --protocol https,http \
+    --latest 20 \
+    --sort rate \
+    --save /etc/pacman.d/mirrorlist
 
-# Actualizar
+print_message "Mirrors configurados en el sistema instalado:"
+cat /etc/pacman.d/mirrorlist | head -10
+
+# Actualizar sistema
 pacman -Syy
 
 # Mostrar información final del espacio
@@ -270,4 +271,5 @@ print_message "sda1: $BOOT_SIZE /boot"
 print_message "sda2: $ROOT_SIZE /"
 print_message "sda3: (todo el espacio restante) /home"
 print_message "Kernel: Linux Zen"
+print_message "Mirrors: Optimizados con reflector"
 print_message "Reinicia y quita el medio de instalación"
