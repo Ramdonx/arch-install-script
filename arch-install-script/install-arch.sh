@@ -66,20 +66,20 @@ if [[ ! $confirmation =~ ^[Ss]$ ]]; then
     exit 0
 fi
 
-# Configurar mirrors con reflector (CORREGIDO)
-print_message "Configurando mirrors con reflector..."
+# CONFIGURAR MIRRORS CON REFLECTOR (ACTUALIZADO)
+print_message "Instalando y configurando reflector..."
 pacman -Sy --noconfirm reflector
 
-# Generar lista de mirrors optimizados (PAÍSES SIN ESPACIOS)
+# Usar reflector para obtener los mirrors más rápidos
+print_message "Buscando los mirrors más rápidos con reflector..."
 reflector \
-    --country Colombia,Argentina,Brazil \
-    --protocol https \
-    --latest 12 \
+    --protocol https,http \
+    --latest 20 \
     --sort rate \
     --save /etc/pacman.d/mirrorlist
 
-print_message "Mirrors configurados:"
-cat /etc/pacman.d/mirrorlist | head -10
+print_message "Mirrors más rápidos configurados:"
+cat /etc/pacman.d/mirrorlist | head -5
 
 # Sincronizar hora
 print_message "Sincronizando hora..."
@@ -95,14 +95,10 @@ parted -s "$DISK" mkpart "boot" fat32 1MiB $BOOT_SIZE
 parted -s "$DISK" set 1 esp on
 
 # sda2: Root (tamaño fijo)
-BOOT_END=$(parted -s "$DISK" unit MiB print | grep "boot" | awk '{print $3}' | sed 's/MiB//')
-ROOT_START=$((BOOT_END + 1))
-parted -s "$DISK" mkpart "root" ext4 ${ROOT_START}MiB $ROOT_SIZE
+parted -s "$DISK" mkpart "root" ext4 $BOOT_SIZE $ROOT_SIZE
 
 # sda3: Home (usa TODO el espacio restante)
-ROOT_END=$(parted -s "$DISK" unit MiB print | grep "root" | awk '{print $3}' | sed 's/MiB//')
-HOME_START=$((ROOT_END + 1))
-parted -s "$DISK" mkpart "home" ext4 ${HOME_START}MiB 100%
+parted -s "$DISK" mkpart "home" ext4 $ROOT_SIZE 100%
 
 # Mostrar las particiones creadas
 print_message "Particiones creadas:"
@@ -126,8 +122,8 @@ mount "${DISK}3" /mnt/home
 print_message "Información del espacio en particiones:"
 lsblk -f "$DISK"
 
-# Configurar pacman.conf CORREGIDO
-print_message "Configurando pacman.conf..."
+# Configurar pacman.conf ACTUALIZADO (sin community)
+print_message "Configurando pacman.conf actualizado..."
 cat > /etc/pacman.conf << 'PACMANCONF'
 [options]
 HoldPkg = pacman glibc
@@ -139,21 +135,18 @@ CheckSpace
 VerbosePkgLists
 ParallelDownloads = 5
 
-# Repositories
+# Repositories ACTUALIZADOS - community fue fusionado con extra
 [core]
 Include = /etc/pacman.d/mirrorlist
 
 [extra]
 Include = /etc/pacman.d/mirrorlist
 
-[community]
-Include = /etc/pacman.d/mirrorlist
-
 [multilib]
 Include = /etc/pacman.d/mirrorlist
 PACMANCONF
 
-# Actualizar base de datos
+# ACTUALIZAR BASE DE DATOS
 print_message "Actualizando base de datos de paquetes..."
 pacman -Syy
 
@@ -202,17 +195,10 @@ echo "$USERNAME:$USER_PASSWORD" | chpasswd
 # Configurar sudo
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 
-# Instalar paquetes necesarios incluyendo reflector
-pacman -S --noconfirm grub efibootmgr dosfstools mtools networkmanager sudo vim git reflector
+# Instalar reflector en el sistema instalado
+pacman -S --noconfirm reflector
 
-# Configurar GRUB
-grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
-grub-mkconfig -o /boot/grub/grub.cfg
-
-# Habilitar NetworkManager
-systemctl enable NetworkManager
-
-# Configurar pacman.conf en el sistema instalado
+# Configurar pacman.conf en el sistema instalado (ACTUALIZADO)
 cat > /etc/pacman.conf << PACMAN_INSTALLED
 [options]
 HoldPkg = pacman glibc
@@ -224,37 +210,81 @@ CheckSpace
 VerbosePkgLists
 ParallelDownloads = 5
 
-# Repositories
+# Repositories ACTUALIZADOS - sin community
 [core]
 Include = /etc/pacman.d/mirrorlist
 
 [extra]
 Include = /etc/pacman.d/mirrorlist
 
-[community]
-Include = /etc/pacman.d/mirrorlist
-
 [multilib]
 Include = /etc/pacman.d/mirrorlist
 PACMAN_INSTALLED
 
-# Configurar mirrors en el sistema instalado con reflector (CORREGIDO)
+# ACTUALIZAR MIRRORS EN EL SISTEMA INSTALADO CON REFLECTOR
+print_message "Actualizando mirrors en el sistema instalado..."
 reflector \
-    --country Colombia,Mexico,United\ States,Brazil \
-    --protocol https,http \
-    --latest 20 \
+    --country Colombia,Argentina,Brazil \
+    --protocol https \
+    --latest 12 \
     --sort rate \
     --save /etc/pacman.d/mirrorlist
 
-echo "Mirrors configurados en el sistema instalado:"
-cat /etc/pacman.d/mirrorlist | head -10
+echo "Mirrors actualizados en el sistema instalado:"
+cat /etc/pacman.d/mirrorlist | head -5
 
 # Actualizar sistema
 pacman -Syy
 
+# Instalar paquetes necesarios
+pacman -S --noconfirm grub efibootmgr dosfstools mtools networkmanager sudo vim git
+
+# Configurar GRUB
+grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
+grub-mkconfig -o /boot/grub/grub.cfg
+
+# Habilitar NetworkManager
+systemctl enable NetworkManager
+
+# Crear servicio para actualizar mirrors automáticamente
+cat > /etc/systemd/system/update-mirrors.service << SERVICE
+[Unit]
+Description=Update pacman mirrors
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/reflector --protocol https,http --latest 20 --sort rate --save /etc/pacman.d/mirrorlist
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+# Crear timer para actualizar mirrors semanalmente
+cat > /etc/systemd/system/update-mirrors.timer << TIMER
+[Unit]
+Description=Update mirrors weekly
+Requires=update-mirrors.service
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+TIMER
+
+systemctl enable update-mirrors.timer
+
 # Mostrar información final del espacio
 echo "=== ESPACIO FINAL DE PARTICIONES ==="
 df -h /boot / /home
+
+# Mostrar información de mirrors
+echo "=== INFORMACIÓN DE MIRRORS ==="
+echo "Mirrors configurados: $(grep -c '^Server' /etc/pacman.d/mirrorlist)"
+echo "Servicio de actualización automática de mirrors: ACTIVADO"
 CHROOT_EOF
 
 # Verificar particiones
@@ -271,5 +301,7 @@ print_message "sda1: $BOOT_SIZE /boot"
 print_message "sda2: $ROOT_SIZE /"
 print_message "sda3: (todo el espacio restante) /home"
 print_message "Kernel: Linux Zen"
-print_message "Mirrors: Optimizados con reflector"
+print_message "Mirrors: Configurados automáticamente con reflector"
+print_message "Actualización automática: Activada semanalmente"
+print_message "Repositorios: core, extra, multilib (sin community)"
 print_message "Reinicia y quita el medio de instalación"
