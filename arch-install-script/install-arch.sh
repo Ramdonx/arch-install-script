@@ -3,15 +3,14 @@
 # Script de instalación de Arch Linux
 # IMPORTANTE: Ejecutar desde el live environment de Arch
 
-set -e  # Detener el script en caso de error
+set -e
 
 # Colores para output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Función para imprimir mensajes
 print_message() {
     echo -e "${GREEN}[INFO]${NC} $1"
 }
@@ -24,7 +23,7 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Verificar si estamos en el live environment
+# Verificar live environment
 if ! grep -q "Arch Linux" /etc/os-release 2>/dev/null; then
     print_error "Este script debe ejecutarse desde el live environment de Arch Linux"
     exit 1
@@ -41,21 +40,26 @@ fi
 print_message "Discos disponibles:"
 lsblk
 
-# Variables de configuración (MODIFICA ESTAS SEGÚN TUS NECESIDADES)
+# Variables de configuración (MODIFICA ESTAS)
 DISK="/dev/sda"
-HOSTNAME="arch"
-USERNAME="ramdonx"
-USER_PASSWORD="1549"
-ROOT_PASSWORD="Xi1aTWx2"
-TIMEZONE="America/Bogota"  # Timezone para Colombia
-KEYMAP="us"
+HOSTNAME="arch-machine"
+USERNAME="usuario"
+USER_PASSWORD="password123"
+ROOT_PASSWORD="root123"
+TIMEZONE="America/Bogota"
+KEYMAP="la-latin1"
 
-# Confirmación antes de continuar
+# Tamaños de partición (sda1 y sda2 fijos, sda3 usa el resto)
+BOOT_SIZE="2GiB"
+ROOT_SIZE="40GiB"
+# HOME_SIZE se calculará automáticamente con el espacio restante
+
+# Confirmación
 print_warning "Este script formateará el disco: $DISK"
 print_warning "Se crearán las siguientes particiones:"
-print_warning "sda1: 2G /boot"
-print_warning "sda2: 40G /"
-print_warning "sda3: 69.8G /home"
+print_warning "sda1: $BOOT_SIZE /boot"
+print_warning "sda2: $ROOT_SIZE /"
+print_warning "sda3: (espacio restante) /home"
 print_warning "¿Continuar? (s/N)"
 read -r confirmation
 if [[ ! $confirmation =~ ^[Ss]$ ]]; then
@@ -63,7 +67,7 @@ if [[ ! $confirmation =~ ^[Ss]$ ]]; then
     exit 0
 fi
 
-# Configurar mirrors más rápidos para Colombia
+# Configurar mirrors para Colombia
 print_message "Configurando mirrors para Colombia..."
 cat > /etc/pacman.d/mirrorlist << MIRRORS
 ## Colombia
@@ -80,24 +84,24 @@ MIRRORS
 print_message "Sincronizando hora..."
 timedatectl set-ntp true
 
-# Particionado según estructura especificada
+# Particionado con espacio restante automático
 print_message "Creando particiones..."
-# Limpiar tabla de particiones existente
 wipefs -a "$DISK"
-
-# Crear tabla de particiones GPT
 parted -s "$DISK" mklabel gpt
 
-# Crear particiones
-# sda1: 2G para /boot
-parted -s "$DISK" mkpart "boot" fat32 1MiB 2GiB
+# sda1: Boot (tamaño fijo)
+parted -s "$DISK" mkpart "boot" fat32 1MiB $BOOT_SIZE
 parted -s "$DISK" set 1 esp on
 
-# sda2: 40G para /
-parted -s "$DISK" mkpart "root" ext4 2GiB 42GiB
+# sda2: Root (tamaño fijo)
+parted -s "$DISK" mkpart "root" ext4 $BOOT_SIZE $ROOT_SIZE
 
-# sda3: 69.8G para /home
-parted -s "$DISK" mkpart "home" ext4 42GiB 111.8GiB
+# sda3: Home (usa TODO el espacio restante)
+parted -s "$DISK" mkpart "home" ext4 $ROOT_SIZE 100%
+
+# Mostrar las particiones creadas
+print_message "Particiones creadas:"
+parted -s "$DISK" print
 
 # Formatear particiones
 print_message "Formateando particiones..."
@@ -113,14 +117,16 @@ mkdir -p /mnt/home
 mount "${DISK}1" /mnt/boot
 mount "${DISK}3" /mnt/home
 
+# Mostrar información del espacio
+print_message "Información del espacio en particiones:"
+lsblk -f "$DISK"
+
 # Configurar pacman para multilib y extra
 print_message "Configurando repositorios multilib y extra..."
 cat > /etc/pacman.conf << PACMANCONF
 [options]
 HoldPkg     = pacman glibc
 Architecture = auto
-
-# Colombia mirrors
 Include = /etc/pacman.d/mirrorlist
 
 [core]
@@ -135,11 +141,6 @@ Include = /etc/pacman.d/mirrorlist
 [multilib]
 Include = /etc/pacman.d/mirrorlist
 
-# Agregar repositorio multilib-testing si se desea
-#[multilib-testing]
-#Include = /etc/pacman.d/mirrorlist
-
-# Configuraciones adicionales
 Color
 ILoveCandy
 CheckSpace
@@ -147,7 +148,7 @@ VerbosePkgLists
 ParallelDownloads = 5
 PACMANCONF
 
-# Actualizar base de datos de paquetes
+# Actualizar base de datos
 print_message "Actualizando base de datos de paquetes..."
 pacman -Syy
 
@@ -155,15 +156,14 @@ pacman -Syy
 print_message "Instalando sistema base con kernel Zen..."
 pacstrap /mnt base base-devel linux-zen linux-zen-headers linux-firmware
 
-# Generar fstab en /mnt/etc/fstab
-print_message "Generando fstab en /mnt/etc/fstab..."
+# Generar fstab
+print_message "Generando fstab..."
 genfstab -U /mnt >> /mnt/etc/fstab
 
 # Configuración del sistema
 print_message "Configurando sistema..."
 
-# Script para chroot
-arch-chroot /mnt /bin/bash <<EOF
+arch-chroot /mnt /bin/bash <<CHROOT_EOF
 # Configurar timezone
 ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 hwclock --systohc
@@ -181,11 +181,11 @@ echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
 echo "$HOSTNAME" > /etc/hostname
 
 # Configurar hosts
-cat > /etc/hosts <<HOSTS
+cat > /etc/hosts <<HOSTS_EOF
 127.0.0.1   localhost
 ::1         localhost
 127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
-HOSTS
+HOSTS_EOF
 
 # Configurar contraseñas
 echo "root:$ROOT_PASSWORD" | chpasswd
@@ -197,22 +197,15 @@ echo "$USERNAME:$USER_PASSWORD" | chpasswd
 # Configurar sudo
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 
-# Instalar paquetes necesarios para GRUB y sistema
-pacman -S --noconfirm grub efibootmgr dosfstools mtools
+# Instalar paquetes necesarios
+pacman -S --noconfirm grub efibootmgr dosfstools mtools networkmanager sudo vim git
 
-# Instalar y configurar bootloader
+# Configurar GRUB
 grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
 
-# Instalar paquetes adicionales básicos
-pacman -S --noconfirm networkmanager sudo vim git
-
-# Habilitar servicios
+# Habilitar NetworkManager
 systemctl enable NetworkManager
-
-# Verificar instalación del kernel
-print_message "Kernel instalado:"
-ls /boot/vmlinuz*
 
 # Configurar mirrors en el sistema instalado
 cat > /etc/pacman.d/mirrorlist <<MIRRORS_INSTALLED
@@ -226,28 +219,26 @@ Server = https://mirror.rackspace.com/archlinux/\$repo/os/\$arch
 Server = https://geo.mirror.pkgbuild.com/\$repo/os/\$arch
 MIRRORS_INSTALLED
 
-# Actualizar en el sistema instalado
+# Actualizar
 pacman -Syy
-EOF
 
-# Verificar particiones montadas
+# Mostrar información final del espacio
+echo "=== ESPACIO FINAL DE PARTICIONES ==="
+df -h /boot / /home
+CHROOT_EOF
+
+# Verificar particiones
 print_message "Verificando particiones montadas:"
 mount | grep /mnt
 
-# Limpiar y finalizar
+# Limpiar
 print_message "Desmontando particiones..."
 umount -R /mnt
 
 print_message "¡Instalación completada!"
-print_message "Particiones creadas:"
-echo "sda1: 2G /boot (EFI)"
-echo "sda2: 40G / (root)"
-echo "sda3: 69.8G /home"
-print_message "Kernel: Linux Zen"
-print_message "Repositorios: Multilib y Extra activados"
-print_message "Mirrors configurados para Colombia"
-print_message ""
-print_message "Reinicia el sistema y recuerda:"
-print_message "1. Quitar el medio de instalación"
-print_message "2. Iniciar sesión con tu usuario: $USERNAME"
-print_message "3. Configurar NetworkManager si es necesario: sudo systemctl start NetworkManager"
+print_message "Estructura final de particiones:"
+print_message "sda1: $BOOT_SIZE /boot"
+print_message "sda2: $ROOT_SIZE /"
+print_message "sda3: (todo el espacio restante) /home"
+print_message "Kernel: Linux Zen - Mirrors: Colombia"
+print_message "Reinicia y quita el medio de instalación"
