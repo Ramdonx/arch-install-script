@@ -66,13 +66,13 @@ if [[ ! $confirmation =~ ^[Ss]$ ]]; then
     exit 0
 fi
 
-# Configurar mirrors con reflector (LA MEJOR SOLUCIÓN)
+# Configurar mirrors con reflector (CORREGIDO)
 print_message "Configurando mirrors con reflector..."
 pacman -Sy --noconfirm reflector
 
-# Generar lista de mirrors optimizados
+# Generar lista de mirrors optimizados (PAÍSES SIN ESPACIOS)
 reflector \
-    --country Colombia,Mexico,United States,Brazil \
+    --country Colombia,Mexico,United\ States,Brazil \
     --protocol https,http \
     --latest 20 \
     --sort rate \
@@ -238,15 +238,15 @@ Include = /etc/pacman.d/mirrorlist
 Include = /etc/pacman.d/mirrorlist
 PACMAN_INSTALLED
 
-# Configurar mirrors en el sistema instalado con reflector
+# Configurar mirrors en el sistema instalado con reflector (CORREGIDO)
 reflector \
-    --country Colombia,Mexico,United States,Brazil \
+    --country Colombia,Mexico,United\ States,Brazil \
     --protocol https,http \
     --latest 20 \
     --sort rate \
     --save /etc/pacman.d/mirrorlist
 
-print_message "Mirrors configurados en el sistema instalado:"
+echo "Mirrors configurados en el sistema instalado:"
 cat /etc/pacman.d/mirrorlist | head -10
 
 # Actualizar sistema
