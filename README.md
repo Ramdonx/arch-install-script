@@ -14,6 +14,6 @@ Script personalizado para instalar Arch Linux con configuración específica.
 
 ```bash
 # Desde el live environment de Arch:
-curl -O https://raw.githubusercontent.com/tu-usuario/arch-install-script/main/install-arch.sh
+curl -O https://raw.githubusercontent.com/Ramdonx/arch-install-script/refs/heads/main/arch-install-script/install-arch.sh
 chmod +x install-arch.sh
 ./install-arch.sh
