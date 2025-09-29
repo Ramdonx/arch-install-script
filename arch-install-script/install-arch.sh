@@ -72,9 +72,9 @@ pacman -Sy --noconfirm reflector
 
 # Generar lista de mirrors optimizados (PAÍSES SIN ESPACIOS)
 reflector \
-    --country Colombia,Mexico,United\ States,Brazil \
-    --protocol https,http \
-    --latest 20 \
+    --country Colombia,Argentina,Brazil \
+    --protocol https \
+    --latest 12 \
     --sort rate \
     --save /etc/pacman.d/mirrorlist
 
