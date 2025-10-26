@@ -150,9 +150,9 @@ PACMANCONF
 print_message "Actualizando base de datos de paquetes..."
 pacman -Syy
 
-# Instalar sistema base con kernel Zen
-print_message "Instalando sistema base con kernel Zen..."
-pacstrap /mnt base base-devel linux-zen linux-zen-headers linux-firmware
+# Instalar sistema base con kernel Zen y drivers NVIDIA
+print_message "Instalando sistema base con kernel Zen y drivers NVIDIA..."
+pacstrap /mnt base base-devel linux-zen linux-zen-headers linux-firmware nvidia-dkms nvidia-utils lib32-nvidia-utils
 
 # Generar fstab
 print_message "Generando fstab..."
