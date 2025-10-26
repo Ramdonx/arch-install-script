@@ -241,10 +241,19 @@ pacman -Syy
 # Instalar paquetes necesarios (AGREGAR mkinitcpio)
 pacman -S --noconfirm efibootmgr dosfstools mtools networkmanager sudo vim git mkinitcpio
 
-# CONFIGURACIÓN UKI (Unified Kernel Image)
+# CONFIGURACIÓN UKI (Unified Kernel Image) - CORREGIDA
 
 # Crear directorio para UKI si no existe
 mkdir -p /boot/EFI/Linux
+
+# Obtener UUID de la partición raíz
+ROOT_UUID=\$(blkid -s UUID -o value /dev/sda2)
+echo "UUID de la partición raíz: \$ROOT_UUID"
+
+# Crear archivo de parámetros del kernel
+mkdir -p /etc/kernel
+echo "root=UUID=\$ROOT_UUID rw" > /etc/kernel/cmdline
+echo "Parámetros del kernel: \$(cat /etc/kernel/cmdline)"
 
 # Configurar mkinitcpio para generar UKI automáticamente
 cat > /etc/mkinitcpio.d/linux-zen.preset << UKI_PRESET
@@ -256,21 +265,23 @@ PRESETS=('default' 'fallback')
 
 # UKI por defecto
 default_uki="/boot/EFI/Linux/arch-linux-zen.efi"
-default_options="--splash /usr/share/systemd/bootctl/splash-arch.bmp"
+default_options="--cmdline /etc/kernel/cmdline --splash /usr/share/systemd/bootctl/splash-arch.bmp"
 
 # UKI de respaldo
 fallback_uki="/boot/EFI/Linux/arch-linux-zen-fallback.efi"
-fallback_options="-S autodetect"
+fallback_options="--cmdline /etc/kernel/cmdline -S autodetect"
 UKI_PRESET
 
 # Generar el UKI
-echo "Generando UKI..."
+echo "Generando UKI con parámetros del kernel..."
 mkinitcpio -p linux-zen
 
 # Verificar que el UKI se creó correctamente
 if [ -f "/boot/EFI/Linux/arch-linux-zen.efi" ]; then
     echo "=== UKI GENERADO EXITOSAMENTE ==="
     ls -lh "/boot/EFI/Linux/arch-linux-zen.efi"
+    echo "Contenido del UKI:"
+    objdump -p "/boot/EFI/Linux/arch-linux-zen.efi" | grep cmdline || echo "No se pudo verificar cmdline en UKI"
 else
     echo "ERROR: UKI no se generó correctamente"
     exit 1
@@ -287,12 +298,12 @@ elif [ -e "/dev/vda" ]; then
     DISK_DEVICE="vda"
 fi
 
-echo "Creando entrada UEFI para disco: $DISK_DEVICE, partición: $BOOT_PARTITION"
+echo "Creando entrada UEFI para disco: \$DISK_DEVICE, partición: \$BOOT_PARTITION"
 
 # Crear entrada UEFI
 efibootmgr --create \
-    --disk "/dev/\${DISK_DEVICE}" \
-    --part "\${BOOT_PARTITION}" \
+    --disk "/dev/\$DISK_DEVICE" \
+    --part "\$BOOT_PARTITION" \
     --label "Arch Linux (UKI)" \
     --loader '\\EFI\\Linux\\arch-linux-zen.efi' \
     --verbose
@@ -303,8 +314,8 @@ efibootmgr -v
 
 # Crear entrada de respaldo también
 efibootmgr --create \
-    --disk "/dev/\${DISK_DEVICE}" \
-    --part "\${BOOT_PARTITION}" \
+    --disk "/dev/\$DISK_DEVICE" \
+    --part "\$BOOT_PARTITION" \
     --label "Arch Linux (Fallback)" \
     --loader '\\EFI\\Linux\\arch-linux-zen-fallback.efi' \
     --verbose
@@ -356,6 +367,7 @@ echo "Servicio de actualización automática de mirrors: ACTIVADO"
 echo "=== INFORMACIÓN UKI ==="
 echo "Archivos UKI generados:"
 ls -la /boot/EFI/Linux/
+echo "Parámetros del kernel en uso: \$(cat /etc/kernel/cmdline)"
 echo "Entradas UEFI:"
 efibootmgr -v
 CHROOT_EOF
@@ -374,6 +386,7 @@ print_message "sda1: $BOOT_SIZE /boot"
 print_message "sda2: $ROOT_SIZE /"
 print_message "sda3: (todo el espacio restante) /home"
 print_message "Kernel: Linux Zen"
+print_message "Boot: UKI (Unified Kernel Image) con parámetros automáticos"
 print_message "Mirrors: Configurados automáticamente con reflector"
 print_message "Actualización automática: Activada semanalmente"
 print_message "Repositorios: core, extra, multilib (sin community)"
